@@ -122,11 +122,11 @@ actor EK {
     }
     
     
-    func trySync(from: String, to: String, background: Bool) -> SyncStatus {
+    func trySync(from: String, to: String, cause: String) -> SyncStatus {
         state.last_sync_status = nil
         let t = Date()
         var status : SyncStatus
-        let header = (background ? "background" : "user") + " " + t.description
+        let header = cause + " " + t.description
         do {
             try doSync(from: from, to: to)
             status = SyncStatus(ok: true, t: t)
@@ -192,7 +192,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         BGTaskScheduler.shared.register(forTaskWithIdentifier: "org.elder-gods.sync", using: nil) { task in
             print("WOOOOOOOOO")
             self.schedule()
-            if !self.sync_in_background {
+            if !self.sync_in_background || ek.state.auth != .authorized {
                 task.setTaskCompleted(success: true)
                 return
             }
@@ -201,17 +201,30 @@ class AppDelegate: NSObject, UIApplicationDelegate {
                 return
             }
             Task {
-                if ek.state.auth != .authorized {
-                    return
-                }
-                let status = await ek.trySync(from: from, to: to, background: true)
+                let status = await ek.trySync(from: from, to: to, cause: "background")
                 task.setTaskCompleted(success: status.ok)
             }
         }
+
+        NotificationCenter.default.addObserver(self, selector: #selector(self.storeChanged(_:)), name: .EKEventStoreChanged, object: ek.store)
+
         //UIApplication.shared.setMinimumBackgroundFetchInterval(1)
         print("registered")
     }
     
+    @objc
+    func storeChanged(_ notification:  NSNotification){
+        if ek.state.auth != .authorized || !sync_in_background{
+            return
+        }
+        guard let from = self.from, let to = self.to else {
+            return
+        }
+        Task {
+            await ek.trySync(from: from, to: to, cause: "notification")
+        }
+    }
+
     func applicationDidEnterBackground(_ application: UIApplication) {
         print("did enter background")
         schedule()

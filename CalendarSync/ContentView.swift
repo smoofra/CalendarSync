@@ -42,7 +42,7 @@ struct ContentView: View {
             return
         }
         Task {
-            await ek.trySync(from: from, to: to, background: false)
+            await ek.trySync(from: from, to: to, cause: "user")
         }
     }
     
@@ -70,7 +70,11 @@ struct ContentView: View {
                         ForEach(choices) {choice in
                             Text(choice.name).tag(choice.id)
                         }
-                    }.accentColor(from == nil ? .gray : .blue)
+                    }
+                    .accentColor(from == nil ? .gray : .blue)
+                    .onChange(of: from, {
+                        sync_in_background = false
+                    })
                 }
                 HStack {
                     Text("To:")
@@ -79,7 +83,11 @@ struct ContentView: View {
                         ForEach(choices) {choice in
                             Text(choice.name).tag(choice.id)
                         }
-                    }.accentColor(to == nil ? .gray : .blue)
+                    }
+                    .accentColor(to == nil ? .gray : .blue)
+                    .onChange(of: to, {
+                        sync_in_background = false
+                    })
                 }
                 Toggle(isOn: $sync_in_background) {
                     Text("Sync In Background")
