@@ -8,6 +8,9 @@
 import SwiftUI
 import EventKit
 import BackgroundTasks
+import os.log
+
+let log = Logger()
 
 struct SyncStatus {
     let ok : Bool
@@ -59,7 +62,7 @@ actor EK {
             }
         } catch {
             ok = false
-            print("oh no \(error)")
+            log.error("oh no \(error)")
         }
         state.auth = ok ? .authorized : .denied
     }
@@ -79,7 +82,7 @@ actor EK {
             var a, b : EKEvent?
         }
         var d = Dictionary<Key, Pair>()
-        print("collecting")
+        log.notice("collecting")
         for e in ek.store.events(matching: p) {
             let k = Key(title: e.title, startDate: e.startDate, endDate: e.endDate, isAllDay: e.isAllDay)
             var pair = d[k, default: Pair()]
@@ -95,7 +98,7 @@ actor EK {
             }
             d[k] = pair
         }
-        print("copying..")
+        log.notice("copying..")
         for (k, pair) in d {
             if let orig = pair.a {
                 if let clone = pair.b {
@@ -116,9 +119,9 @@ actor EK {
                 try ek.store.remove(clone, span: .thisEvent, commit: false)
             }
         }
-        print("commiting...")
+        log.notice("commiting...")
         try ek.store.commit()
-        print("done!")
+        log.notice("done!")
     }
     
     
@@ -126,15 +129,14 @@ actor EK {
         state.last_sync_status = nil
         let t = Date()
         var status : SyncStatus
-        let header = cause + " " + t.description
+        let header = cause + " " + t.description(with: Locale.current)
         do {
             try doSync(from: from, to: to)
             status = SyncStatus(ok: true, t: t)
-            log("\(header) ok\n")
+            log.notice("\(header, privacy: .public) ok\n")
         } catch {
-            print("oh no: \(error)")
             status = SyncStatus(ok: false, t: t)
-            log("\(header): \(error)")
+            log.error("\(header, privacy: .public): \(error)")
         }
         state.last_sync_status = status
         return status
@@ -143,35 +145,6 @@ actor EK {
 
 let ek = EK()
 
-
-func log(_ line: String) {
-    let url = URL.documentsDirectory.appending(path: "calendar_sync_log.txt")
-    let manager = FileManager.default
-    if !manager.fileExists(atPath: url.path) {
-        manager.createFile(atPath: url.path, contents: Data())
-    }
-    do {
-        let f = try FileHandle(forUpdating: url)
-        f.seekToEndOfFile()
-        f.write(Data(line.utf8))
-        try f.close()
-    } catch {
-        fatalError("could not write log: \(error)")
-    }
-}
-
-func printLog() {
-    let url = URL.documentsDirectory.appending(path: "calendar_sync_log.txt")
-    do {
-        let log = try String(contentsOf: url, encoding: .utf8)
-        log.enumerateLines { line, stop in
-            print(line)
-        }
-
-    } catch {
-        print("error reading log")
-    }
-}
 
 class AppDelegate: NSObject, UIApplicationDelegate {
     
@@ -182,7 +155,6 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey : Any]? = nil) -> Bool {
         Task { await ek.request() }
-        printLog()
         register()
         schedule()
         return true
@@ -190,7 +162,6 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     
     func register() {
         BGTaskScheduler.shared.register(forTaskWithIdentifier: "org.elder-gods.sync", using: nil) { task in
-            print("WOOOOOOOOO")
             self.schedule()
             if !self.sync_in_background || ek.state.auth != .authorized {
                 task.setTaskCompleted(success: true)
@@ -207,9 +178,6 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         }
 
         NotificationCenter.default.addObserver(self, selector: #selector(self.storeChanged(_:)), name: .EKEventStoreChanged, object: ek.store)
-
-        //UIApplication.shared.setMinimumBackgroundFetchInterval(1)
-        print("registered")
     }
     
     @objc
@@ -226,19 +194,19 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     }
 
     func applicationDidEnterBackground(_ application: UIApplication) {
-        print("did enter background")
+        log.info("did enter background")
         schedule()
     }
     
     func schedule() {
         let request = BGProcessingTaskRequest(identifier: "org.elder-gods.sync")
-        request.earliestBeginDate = Date(timeIntervalSinceNow: 1)
+        request.earliestBeginDate = Date(timeIntervalSinceNow: 60 * 60)
         request.requiresNetworkConnectivity = true
         do {
             try BGTaskScheduler.shared.submit(request)
-            print("scheduled")
+            log.info("scheduled")
         } catch {
-            print("could not schedule task \(error)")
+            log.error("could not schedule task \(error)")
         }
     }
 
